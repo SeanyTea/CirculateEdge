@@ -1,16 +1,15 @@
 # Initialize I2C addresses
 import board
-import board
 import busio
 import adafruit_mlx90640
 from adafruit_bme280 import basic as adafruit_bme280
 import adafruit_sgp30
-from sgp30 import SGP30
 import adafruit_veml7700
 import sys
 from createClient import createMQTTClient
 import json
 import time
+import torch
 
 #Define path to certificates
 PATH_TO_CERT = '/home/intelligentmedicine/Desktop/CirculateEdge_000_Certificates/'
@@ -27,15 +26,14 @@ prevAddresses = [hex(device_addresses) for device_addresses in i2c.scan()]
 print(prevAddresses)
 bme280 = adafruit_bme280.Adafruit_BME280_I2C(i2c) # Temp + pressure sensor
 sgp30 = adafruit_sgp30.Adafruit_SGP30(i2c)
-print("Sensor warming up, please wait...")
-def crude_progress_bar():
-    sys.stdout.write('.')
-    sys.stdout.flush()
+print("SGP30 serial #", [hex(i) for i in sgp30.serial])
+
+#sgp30.set_iaq_baseline(0x946b, 0x9411)
 
 #sgp30.start_measurement(crude_progress_bar)
 #sys.stdout.write('\n')
 #mlx = adafruit_mlx90640.MLX90640(i2c)
-#veml7700 = adafruit_veml7700.VEML7700(i2c)
+veml7700 = adafruit_veml7700.VEML7700(i2c)
 
     
 # result = sgp30.command('set_baseline', (0xFECA, 0xBEBA))
@@ -67,8 +65,10 @@ vemlClient.connect()
 deviceClient = createMQTTClient('deveiceHealth',endPoint,credentials)
 deviceClient.connect()
 
-testClient = createMQTTClient('test',endPoint,credentials)
-testClient.connect()
+occupancyClient = createMQTTClient('occupancyTracker',endPoint,credentials)
+occupancyClient.connect()
+
+
 
 # Useful functions
 def handleConnections(currentAddresses,prevAddresses):
@@ -124,6 +124,18 @@ def helloworld(self,params,packet):
 	print("Payload:",packet.payload)
 	
 cnt = 0
+bmeData = {}
+sgpData = {}
+vemlData = {}
+bmeData['GSIPK'] = "ORG#URBANCOWORKS#ROOM#OFFICE"
+sgpData['GSIPK'] = "ORG#URBANCOWORKS#ROOM#OFFICE"
+vemlData['GSIPK'] = "ORG#URBANCOWORKS#ROOM#OFFICE"
+
+PERIOD_OF_TIME = 3600*3
+start_time = time.time()
+update_time = time.time()
+expiryDate = start_time+PERIOD_OF_TIME
+
 while True:
     #First handle device connectivity
     currentAddresses = [hex(device_addresses) for device_addresses in i2c.scan()]
@@ -135,24 +147,33 @@ while True:
     '''
     #handleConnections(currentAddresses, prevAddresses)
     prevAddresses = currentAddresses
-    currentTime = time.time()
-    bmeData = {}
-    sgpData = {}
-    bmeData['deviceID'] = "1"
-    bmeData['timestamp'] = str(currentTime)
-    bmeData['Temperature'] = round(bme280.temperature,2)
-    bmeData['Humidity'] = round(bme280.humidity,2)
-    payloadMsg = json.dumps(bmeData)
-    
-    bmeClient.publish(topic = "BME280", QoS=1, payload = payloadMsg)
-    #result = sgp30.get_air_quality()
-    
-    sgpData['deviceID'] = "2"
-    sgpData['timestamp'] = str(currentTime)
-    sgpData['CO2'] = sgp30.eCO2
-    sgpData['TVOC'] = sgp30.TVOC
-    print(sgpData)
-    payloadMsg = json.dumps(sgpData)
-    sgpClient.publish(topic = "SGP30", QoS = 1, payload = payloadMsg)
+    if time.time() - update_time > 1:
+        currentTime = time.time()
+        bmeData['GSISK'] = "SENSOR#BME280#"+ str(currentTime)
+        bmeData['Temperature'] = round(bme280.temperature,2)
+        bmeData['Humidity'] = round(bme280.humidity,2)
+        bmeData['Pressure'] = round(bme280.pressure,2)
+        payloadMsg = json.dumps(bmeData)
+        
+        bmeClient.publish(topic = "sensor/BME280", QoS=1, payload = payloadMsg)
+        #result = sgp30.get_air_quality()
+        sgpData['GSISK'] = "SENSOR#SGP30#" + str(currentTime)
+        sgpData['CO2'] = sgp30.eCO2
+        sgpData['TVOC'] = sgp30.TVOC
+        print(sgpData)
+        payloadMsg = json.dumps(sgpData)
+        sgpClient.publish(topic = "sensor/SGP30", QoS = 1, payload = payloadMsg)
+        
+        vemlData['GSISK'] = "SENSOR#VEML7700#" +str(currentTime)
+        vemlData['Light'] = veml7700.light
+        vemlData['Lux'] = veml7700.lux
+        print(vemlData)
+        payloadMsg = json.dumps(vemlData)
+        vemlClient.publish(topic = "sensor/VEML7700", QoS = 1, payload = payloadMsg)
+        update_time = time.time()
+        print("Sending data...")    
     cnt+=1
     time.sleep(1)
+    if time.time() - start_time > PERIOD_OF_TIME:
+        print("Ending program...")
+        break

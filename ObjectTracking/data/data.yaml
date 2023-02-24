@@ -1,0 +1,12 @@
+names:
+- head
+nc: 1
+roboflow:
+  license: CC BY 4.0
+  project: headdetection-oiiz8
+  url: https://universe.roboflow.com/sean-thammakhoune-cqknw/headdetection-oiiz8/dataset/3
+  version: 3
+  workspace: sean-thammakhoune-cqknw
+test: ../test/images
+train: HeadDetection-3/train/images
+val: HeadDetection-3/valid/images
